@@ -1,0 +1,7 @@
+# Normalize all text files to LF in the repo and on checkout,
+# so hooks/scripts run correctly on Linux/macOS.
+* text=auto eol=lf
+
+# Windows batch files must stay CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf
