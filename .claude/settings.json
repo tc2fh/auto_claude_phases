@@ -1,0 +1,11 @@
+{
+  "//": "Hooks run stdlib Python via pyrun --isolated (isolated uv/pixi/system; never the project env, so a broken project can't disable the gate/guard). Code/tests use the project env via ## Verify. macOS/Linux: 'sh .claude/hooks/pyrun.sh --isolated <script>'.",
+  "hooks": {
+    "SubagentStop": [
+      { "matcher": "", "hooks": [ { "type": "command", "command": ".claude\\hooks\\pyrun.cmd --isolated .claude\\hooks\\gate.py" } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Bash|PowerShell", "hooks": [ { "type": "command", "command": ".claude\\hooks\\pyrun.cmd --isolated .claude\\hooks\\no_headless.py" } ] }
+    ]
+  }
+}

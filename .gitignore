@@ -1,0 +1,45 @@
+# phase-workflow runtime state
+.phaserun/
+
+# python / env managers
+__pycache__/
+.venv/
+venv/
+env/
+.pixi/
+.conda/
+__pypackages__/
+.tox/
+.nox/
+*.egg-info/
+.eggs/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# build output
+build/
+dist/
+target/
+
+# large artifacts — track with DVC/git-lfs, not raw git (un-ignore one with e.g. !data/small.csv)
+data/
+results/
+checkpoints/
+outputs/
+artifacts/
+*.parquet
+*.feather
+*.h5
+*.hdf5
+*.nc
+*.npy
+*.npz
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.bin
+wandb/
+mlruns/
