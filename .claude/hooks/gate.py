@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Deterministic phase gate (SubagentStop hook). Runs real checks, writes .phaserun/gate_result.json
-which the orchestrator treats as authoritative. Always exits 0 (reports, never blocks).
-Checks: verify (cached), diff size, destructive ops, data clobber, dependency pins, large artifacts,
-out-of-scope. Sci-computing defaults (Python/C++/Rust/Make); general via a per-phase `## Verify`."""
+"""Deterministic phase gate (SubagentStop hook). No-ops unless a phase run is active
+(.phaserun/current_phase exists), so ordinary sessions never trigger test runs. Runs real checks,
+writes .phaserun/gate_result.json which the orchestrator treats as authoritative. Always exits 0
+(reports, never blocks). Checks: verify (cached), diff size, destructive ops, data clobber,
+dependency pins, large artifacts, out-of-scope. Sci-computing defaults (Python/C++/Rust/Make)."""
 
 import hashlib, json, os, re, shutil, subprocess, sys, pathlib
 
@@ -23,7 +24,7 @@ PROTECTED_DIRS = [d.strip().rstrip("/") for d in os.environ.get(
 
 DESTRUCTIVE_ALWAYS = [
     ("SQL drop/truncate/delete", r"\b(?:DROP\s+(?:TABLE|DATABASE)|TRUNCATE|DELETE\s+FROM)\b"),
-    ("rm -rf", r"rm\s+-rf\b"), ("rmdir /s", r"\brmdir\s+/s\b"),
+    ("rm -rf", r"rm\s+-(?:rf|fr)\b"), ("rmdir /s", r"\brmdir\s+/s\b"),
     ("Remove-Item -Recurse", r"Remove-Item\b[^\n]*-Recurse"), ("shutil.rmtree", r"shutil\.rmtree\b"),
     ("git push --force", r"git\s+push\b[^\n]*--force\b"), ("--force-with-lease", r"--force-with-lease\b"),
     ("git lfs --force/prune", r"git\s+lfs\b[^\n]*(?:--force\b|\bprune\b)"), ("dvc destroy/gc", r"\bdvc\s+(?:destroy|gc)\b"),
@@ -43,7 +44,6 @@ SCAN_EXTS = {".py", ".pyx", ".ipynb", ".cpp", ".cc", ".cxx", ".c", ".h", ".hpp",
 SCAN_NAMES = {"Makefile", "makefile", "GNUmakefile", "CMakeLists.txt", "meson.build", "Dockerfile"}
 
 STATE = pathlib.Path(".phaserun")
-STATE.mkdir(exist_ok=True)
 
 
 def git(*a):
@@ -188,8 +188,10 @@ def changed_files(base):
 
 
 def changed_lines(base):
+    # Single base-vs-worktree diff: it already covers committed+staged+unstaged; adding
+    # `git diff --numstat` on top would double-count unstaged edits.
     n = 0
-    for row in (git("diff", base, "--numstat") + git("diff", "--numstat")).splitlines():
+    for row in git("diff", "--numstat", base).splitlines():
         parts = row.split("\t")
         if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit() and not in_ignored_dir(parts[2]):
             n += int(parts[0]) + int(parts[1])
@@ -280,6 +282,8 @@ def evaluate_scope(scope, changed):
             matchers.append(("exact", g))
     out = []
     for f in changed:
+        if f == "PROGRESS.md" or f.startswith("plan_docs/"):
+            continue  # workflow infra, not phase code; user may fix a phase file mid-pause
         if not any((k == "prefix" and f.startswith(m)) or (k == "exact" and (f == m or f.startswith(m.rstrip("/") + "/")))
                    or (k == "regex" and m.match(f)) for k, m in matchers):
             out.append(f)
@@ -304,7 +308,8 @@ def code_fingerprint(base, changed):
 
 def run_verify(verify_cmd, base, changed):
     fp_path, res_path = STATE / "verify_fingerprint", STATE / "verify_passed"
-    fp = code_fingerprint(base, changed)
+    # Include the command itself so a changed `## Verify` invalidates the cache even with identical code.
+    fp = hashlib.sha256((code_fingerprint(base, changed) + "\0" + verify_cmd).encode()).hexdigest()
     if fp_path.exists() and res_path.exists() and _read(fp_path).strip() == fp:
         cached = _read(res_path).strip()
         if cached in ("true", "false"):
@@ -323,6 +328,8 @@ def main():
         json.load(sys.stdin)
     except Exception:
         pass
+    if not (STATE / "current_phase").exists():
+        sys.exit(0)  # no active phase run (orchestrator writes current_phase) - stay out of ordinary sessions
     if not pathlib.Path(".git").exists():
         (STATE / "gate_result.json").write_text(json.dumps({"stop_recommended": True, "reasons": [
             "not a git repository (run `git init` + a baseline commit; the gate needs git for diffs/scope/rollback)"]}, indent=2))
